@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GAM WebUI — First-Time Setup</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --blue:    #58a6ff;
+      --red:     #f85149;
+      --green:   #3fb950;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .logo {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--blue);
+      letter-spacing: 0.1em;
+      text-align: center;
+    }
+    .heading {
+      font-size: 1rem;
+      font-weight: 600;
+      text-align: center;
+    }
+    .hint {
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.5;
+    }
+    hr { border: none; border-top: 1px solid var(--border); }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    input[type="text"],
+    input[type="email"],
+    input[type="password"] {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: var(--blue); }
+    input.invalid { border-color: var(--red); }
+    .btn {
+      width: 100%;
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      background: var(--blue);
+      color: #0d1117;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #error-msg {
+      background: #2d1010;
+      border: 1px solid var(--red);
+      border-radius: 6px;
+      padding: 0.6rem 0.8rem;
+      font-size: 0.8rem;
+      color: var(--red);
+      display: none;
+    }
+    .pw-hint {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">GAM WEBUI</div>
+  <div class="heading">Create your administrator account</div>
+  <p class="hint">This is a one-time setup. You can add more users later from the admin panel.</p>
+
+  <hr />
+
+  <div id="error-msg"></div>
+
+  <div>
+    <label for="name">Your name</label>
+    <input type="text" id="name" autocomplete="name" placeholder="Jane Smith" />
+  </div>
+  <div>
+    <label for="email">Email</label>
+    <input type="email" id="email" autocomplete="username" placeholder="you@example.com" />
+  </div>
+  <div>
+    <label for="password">Password</label>
+    <input type="password" id="password" autocomplete="new-password" placeholder="••••••••" />
+    <p class="pw-hint">At least 8 characters.</p>
+  </div>
+  <div>
+    <label for="confirm">Confirm password</label>
+    <input type="password" id="confirm" autocomplete="new-password" placeholder="••••••••" />
+  </div>
+
+  <button class="btn" id="btn-setup" onclick="setup()">Create account &amp; continue</button>
+</div>
+
+<script>
+  document.getElementById("confirm").addEventListener("keydown", e => {
+    if (e.key === "Enter") setup();
+  });
+
+  async function setup() {
+    const name     = document.getElementById("name").value.trim();
+    const email    = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+    const confirm  = document.getElementById("confirm").value;
+    const btn      = document.getElementById("btn-setup");
+
+    clearError();
+
+    if (!email || !password) { showError("Email and password are required."); return; }
+    if (password.length < 8)  { showError("Password must be at least 8 characters."); return; }
+    if (password !== confirm)  { showError("Passwords do not match."); return; }
+
+    btn.disabled = true;
+    btn.textContent = "Creating account…";
+
+    try {
+      const r = await fetch("/api/auth/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: name || email, email, password }),
+      });
+      const data = await r.json();
+      if (r.ok) {
+        location.href = data.redirect || "/dashboard";
+      } else {
+        showError(data.detail || "Setup failed. Please try again.");
+      }
+    } catch {
+      showError("Network error. Please try again.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Create account & continue";
+    }
+  }
+
+  function showError(msg) {
+    const el = document.getElementById("error-msg");
+    el.textContent = msg;
+    el.style.display = "block";
+  }
+  function clearError() {
+    document.getElementById("error-msg").style.display = "none";
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+venv/
+__pycache__/
+*.pyc
+.env
+.claude/
+.DS_Store
+
+# Runtime config — copy from config.example.yaml and fill in values
+config.yaml
+
+# data/ contains credentials, databases, and logs — never commit
+data/
+!data/.gitkeep
+
+# Client GAM configs are mounted at runtime, never stored in repo
+*.json
+oauth2.txt
+
+# Common local/runtime artifacts that may contain sensitive data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.jsonl
+*.log
+*.pem
+*.key

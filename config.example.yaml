@@ -1,0 +1,130 @@
+# GAM-WebUI Application Config
+# Copy to config.yaml in your data/ directory and fill in values.
+# This file is committed. config.yaml is gitignored (lives in data/).
+#
+# Design note: this file configures the APP, not individual clients.
+# Client-specific settings (domain, default OU, GAM config path, etc.)
+# are stored in the SQLite database and managed via the admin UI or CLI.
+
+app:
+  # Shown in the browser tab and header. Customize per deployment.
+  name: "GAM WebUI"
+  # Secret key for signing session cookies. Generate with:
+  #   python3 -c "import secrets; print(secrets.token_hex(32))"
+  secret_key: "CHANGE_ME"
+
+database:
+  # Path to SQLite database file. In Docker this should be inside /data.
+  path: "/data/db.sqlite"
+
+gam:
+  # Path to the GAM binary. In Docker, mount the host's GAM dir read-only:
+  #   -v /home/user/bin/gam7:/opt/gam7:ro
+  # This way a single GAM update on the host applies to all clients.
+  path: "/opt/gam7/gam"
+  # Root directory under which per-client GAM configs live.
+  # Structure: {clients_root}/{client_id}/gam-config/oauth2.txt etc.
+  clients_root: "/data/clients"
+
+auth:
+  # Primary auth method for MSP staff.
+  #   local  — email/password stored in the SQLite DB (first-time setup creates the admin)
+  #   msal   — Microsoft/Azure AD SSO (requires Azure app registration)
+  #   google — Google OAuth (requires Google Cloud project)
+  #   none   — disables auth entirely — development only, never use in production
+  mode: "local"          # local | msal | google | none
+
+  # Only email addresses from these domains are allowed to log in.
+  # First-time login creates a user record; access to clients is granted separately.
+  # This is identity validation, not authorization — see tech_client_access in DB.
+  allowed_domains:
+    - "yourdomain.com"
+    # Add client domains here if client admins need tool access via Google OAuth.
+    # See auth.google below.
+
+  msal:
+    # Azure AD app registration credentials.
+    # Requires: User.Read scope (identity only — we don't use MS Graph for GAM ops).
+    tenant_id: ""
+    client_id: ""
+    client_secret: ""
+    # Must match a redirect URI registered in your Azure AD app.
+    redirect_uri: "https://your-domain/auth/callback/microsoft"
+
+  google:
+    # Google OAuth for client-domain users (secondary login).
+    # This gives us IDENTITY only — not Admin SDK access.
+    # Admin SDK access is handled separately via per-client GAM credentials.
+    # See docs/onboarding-new-client.md for the GAM credential setup flow.
+    client_id: ""
+    client_secret: ""
+    redirect_uri: "https://your-domain/auth/callback/google"
+
+session:
+  # Absolute session lifetime regardless of activity (seconds). Default: 12 hours.
+  max_age_seconds: 43200
+  # Inactivity timeout while inside a client context (seconds). Default: 30 minutes.
+  # After this, the tech is bounced to the dashboard (not logged out).
+  client_inactivity_seconds: 1800
+  # Set to true when the app is served over HTTPS (behind a reverse proxy with TLS).
+  # Tells browsers to only transmit the session cookie over encrypted connections.
+  secure_cookies: false
+
+scheduler:
+  enabled: true
+  # How often the background task runner checks for due scheduled actions.
+  check_interval_minutes: 5
+
+logs:
+  # Where to write the audit log and termination records.
+  # In Docker, this should be inside the /data volume.
+  dir: "/data/logs"
+
+containers:
+  # Maximum number of client containers that may run concurrently.
+  # When the cap is reached, the least-recently-used container is stopped
+  # automatically before a new one is started.
+  max_concurrent: 5
+
+  # Minutes of inactivity before a running container is stopped by the scheduler.
+  idle_timeout_minutes: 30
+
+  # Docker image used for client containers.
+  # Build with: docker build -f Dockerfile.client -t gam-client .
+  image: "gam-client:latest"
+
+  # --- Volume strategy (choose one) ---
+  #
+  # Option A: named Docker volume (recommended for docker compose deployments).
+  # This is the same volume mounted at /data in the orchestrator container.
+  # Client containers will mount it read-only.
+  data_volume: "gam_data"
+
+  # Option B: host bind-mount path.
+  # Use this when running the orchestrator directly on the host (no outer Docker).
+  # Leave blank if using data_volume above.
+  host_data_path: ""
+
+  # Host path to the GAM binary directory — must match the volume mount in
+  # docker-compose.yml (e.g. /home/user/bin/gam7).
+  # The same directory will be mounted read-only into each client container.
+  host_gam_path: "/path/to/gam7"
+
+# ── Future / not yet implemented ──────────────────────────────────────────────
+#
+# cli:
+#   # The integrated terminal passes commands through cli/validator.py.
+#   # Only valid GAM commands are forwarded. Shell operators are rejected.
+#   # Admin-tier users only. SSH is the escape hatch for anything beyond GAM.
+#   enabled: false
+#   # Paths that the validator will also explicitly block (belt and suspenders).
+#   blocklist: []
+#
+# llm:
+#   # v0.6-0.8: local LLM for natural-language GAM command composition.
+#   # GamCommands.txt (386KB) is the knowledge base — no internet needed.
+#   # Design intent: natural language → suggested command → tech reviews → submits.
+#   # Never auto-execute from natural language.
+#   enabled: false
+#   model: "gemma-4-e2b"
+#   endpoint: "http://localhost:11434"

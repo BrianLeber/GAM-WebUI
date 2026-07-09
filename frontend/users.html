@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GAM WebUI — Users</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --surf2:   #1c2333;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --blue:    #58a6ff;
+      --green:   #3fb950;
+      --red:     #f85149;
+      --yellow:  #d29922;
+    }
+    body { font-family: system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); min-height:100dvh; display:flex; flex-direction:column; }
+    header { padding:.65rem 1.25rem; border-bottom:1px solid var(--border); background:var(--surface); display:flex; align-items:center; gap:1rem; }
+    .logo { font-size:.9rem; font-weight:700; color:var(--blue); letter-spacing:.08em; text-decoration:none; }
+    .header-spacer { flex:1; }
+    .btn-sm { padding:.3rem .65rem; border:1px solid var(--border); border-radius:6px; background:transparent; color:var(--muted); font-size:.72rem; cursor:pointer; text-decoration:none; display:inline-block; }
+    .btn-sm:hover { color:var(--text); border-color:var(--text); }
+
+    /* ─── User menu ─── */
+    .user-menu { position:relative; }
+    .user-btn { display:flex; align-items:center; gap:.35rem; background:transparent; border:1px solid var(--border); border-radius:6px; color:var(--muted); font-size:.72rem; padding:.3rem .65rem; cursor:pointer; white-space:nowrap; max-width:200px; }
+    .user-btn:hover { color:var(--text); border-color:var(--text); }
+    .user-btn-name { overflow:hidden; text-overflow:ellipsis; }
+    .user-dropdown { display:none; position:absolute; right:0; top:calc(100% + 4px); background:var(--surface); border:1px solid var(--border); border-radius:8px; min-width:180px; z-index:200; padding:.35rem 0; box-shadow:0 8px 24px rgba(0,0,0,.5); }
+    .user-menu.open .user-dropdown { display:block; }
+    .dd-item { display:block; width:100%; text-align:left; padding:.45rem .85rem; font-size:.78rem; color:var(--text); background:transparent; border:none; cursor:pointer; text-decoration:none; }
+    .dd-item:hover { background:var(--surf2); }
+    .dd-divider { border:none; border-top:1px solid var(--border); margin:.3rem 0; }
+    .dd-danger { color:var(--red) !important; }
+
+    /* ─── Change-password modal ─── */
+    .cp-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:300; align-items:center; justify-content:center; }
+    .cp-backdrop.open { display:flex; }
+    .cp-inner { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1.5rem; width:100%; max-width:380px; }
+    .cp-inner h2 { font-size:.95rem; font-weight:600; margin-bottom:1.25rem; }
+    .cp-field { margin-bottom:.9rem; }
+    .cp-field label { display:block; font-size:.75rem; color:var(--muted); margin-bottom:.3rem; }
+    .cp-field input { width:100%; padding:.42rem .6rem; background:var(--surf2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:.82rem; outline:none; }
+    .cp-field input:focus { border-color:var(--blue); }
+    .cp-err { font-size:.75rem; color:var(--red); min-height:1rem; margin:.5rem 0; }
+    .cp-foot { display:flex; justify-content:flex-end; gap:.6rem; margin-top:1rem; }
+
+    main { flex:1; padding:2rem 1.25rem; max-width:900px; margin:0 auto; width:100%; }
+    .page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; }
+    h1 { font-size:1rem; font-weight:600; }
+
+    .btn-primary { padding:.4rem .9rem; background:var(--blue); color:#0d1117; border:none; border-radius:6px; font-size:.78rem; font-weight:600; cursor:pointer; }
+    .btn-primary:hover { opacity:.85; }
+    .btn-danger  { padding:.3rem .65rem; background:transparent; color:var(--red); border:1px solid var(--red); border-radius:6px; font-size:.72rem; cursor:pointer; }
+    .btn-danger:hover  { background:rgba(248,81,73,.12); }
+    .btn-ghost  { padding:.3rem .65rem; background:transparent; color:var(--muted); border:1px solid var(--border); border-radius:6px; font-size:.72rem; cursor:pointer; }
+    .btn-ghost:hover  { color:var(--text); border-color:var(--text); }
+
+    /* ── Table ── */
+    .user-table { width:100%; border-collapse:collapse; }
+    .user-table th { text-align:left; font-size:.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; padding:.5rem .75rem; border-bottom:1px solid var(--border); }
+    .user-table td { padding:.75rem; border-bottom:1px solid var(--border); vertical-align:middle; font-size:.82rem; }
+    .user-table tr:last-child td { border-bottom:none; }
+    .user-table tr:hover td { background:var(--surf2); }
+    .user-name { font-weight:600; }
+    .user-email { font-size:.72rem; color:var(--muted); margin-top:.1rem; }
+    .role-badge { font-size:.62rem; font-weight:700; padding:.1rem .45rem; border-radius:99px; text-transform:uppercase; }
+    .role-admin { background:#0d2040; color:var(--blue); }
+    .role-tech  { background:#21262d; color:var(--muted); }
+    .inactive-row td { opacity:.45; }
+    .actions { display:flex; gap:.4rem; flex-wrap:wrap; }
+
+    /* ── Modals ── */
+    .backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:100; align-items:center; justify-content:center; }
+    .backdrop.open { display:flex; }
+    .modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1.5rem; width:100%; max-width:420px; max-height:90dvh; overflow-y:auto; }
+    .modal-wide { max-width:560px; }
+    .modal h2 { font-size:.95rem; font-weight:600; margin-bottom:1.25rem; }
+    .field { margin-bottom:1rem; }
+    .field label { display:block; font-size:.75rem; color:var(--muted); margin-bottom:.35rem; }
+    .field input, .field select { width:100%; padding:.45rem .6rem; background:var(--surf2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:.82rem; }
+    .field input:focus, .field select:focus { outline:none; border-color:var(--blue); }
+    .modal-footer { display:flex; justify-content:flex-end; gap:.6rem; margin-top:1.25rem; }
+    .error-msg { font-size:.75rem; color:var(--red); margin-top:.75rem; min-height:1rem; }
+
+    /* ── Access grid ── */
+    .access-grid { display:grid; grid-template-columns:1fr auto; gap:.5rem; align-items:center; margin-bottom:.75rem; }
+    .access-client-name { font-size:.82rem; font-weight:600; }
+    .access-client-domain { font-size:.72rem; color:var(--muted); }
+    .access-select { padding:.3rem .5rem; background:var(--surf2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:.78rem; min-width:110px; }
+    .access-divider { border:none; border-top:1px solid var(--border); margin:.75rem 0; }
+  </style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/dashboard">GAM WEBUI</a>
+  <div class="header-spacer"></div>
+  <a href="/dashboard" class="btn-sm">← Dashboard</a>
+  <div class="user-menu" id="user-menu">
+    <button class="user-btn" onclick="toggleUserMenu(event)">
+      <span class="user-btn-name" id="user-display">…</span>
+      <span style="font-size:.6rem;opacity:.7">▾</span>
+    </button>
+    <div class="user-dropdown">
+      <button class="dd-item" onclick="openChangePw()">Change Password</button>
+      <a class="dd-item" href="/users" id="menu-users-link" style="display:none">User Management</a>
+      <div class="dd-divider"></div>
+      <form action="/logout" method="POST" style="margin:0">
+        <button class="dd-item dd-danger" type="submit">Sign Out</button>
+      </form>
+    </div>
+  </div>
+</header>
+
+<!-- Change Password modal -->
+<div class="cp-backdrop" id="cp-modal" onclick="if(event.target===this)closeChangePw()">
+  <div class="cp-inner">
+    <h2>Change Password</h2>
+    <div class="cp-field"><label>Current Password</label><input id="cp-current" type="password" autocomplete="current-password" /></div>
+    <div class="cp-field"><label>New Password</label><input id="cp-new" type="password" autocomplete="new-password" /></div>
+    <div class="cp-field"><label>Confirm New Password</label><input id="cp-confirm" type="password" autocomplete="new-password" /></div>
+    <div class="cp-err" id="cp-error"></div>
+    <div class="cp-foot">
+      <button class="btn-ghost" onclick="closeChangePw()">Cancel</button>
+      <button class="btn-primary" onclick="saveChangePw()">Update Password</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <div class="page-header">
+    <h1>User Management</h1>
+    <button class="btn-primary" onclick="openAddModal()">+ Add User</button>
+  </div>
+  <table class="user-table">
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Role</th>
+        <th>Last Login</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="user-tbody">
+      <tr><td colspan="4" style="color:var(--muted);font-size:.82rem;padding:1.5rem .75rem">Loading…</td></tr>
+    </tbody>
+  </table>
+</main>
+
+<!-- ── Add / Edit User Modal ── -->
+<div class="backdrop" id="user-modal">
+  <div class="modal">
+    <h2 id="user-modal-title">Add User</h2>
+    <div class="field">
+      <label>Display Name</label>
+      <input id="um-name" type="text" placeholder="Jane Smith" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label>Email</label>
+      <input id="um-email" type="email" placeholder="jane@example.com" autocomplete="off" />
+    </div>
+    <div class="field" id="um-pw-field">
+      <label>Password</label>
+      <input id="um-password" type="password" autocomplete="new-password" />
+    </div>
+    <div class="field">
+      <label>Role</label>
+      <select id="um-role">
+        <option value="tech">Tech (helpdesk)</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="error-msg" id="um-error"></div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn-primary" id="um-save-btn" onclick="saveUser()">Add User</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Reset Password Modal ── -->
+<div class="backdrop" id="pw-modal">
+  <div class="modal">
+    <h2>Reset Password</h2>
+    <p style="font-size:.8rem;color:var(--muted);margin-bottom:1rem" id="pw-for"></p>
+    <div class="field">
+      <label>New Password</label>
+      <input id="pw-new" type="password" autocomplete="new-password" />
+    </div>
+    <div class="field">
+      <label>Confirm Password</label>
+      <input id="pw-confirm" type="password" autocomplete="new-password" />
+    </div>
+    <div class="error-msg" id="pw-error"></div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal('pw-modal')">Cancel</button>
+      <button class="btn-primary" onclick="savePassword()">Set Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Client Access Modal ── -->
+<div class="backdrop" id="access-modal">
+  <div class="modal modal-wide">
+    <h2>Client Access</h2>
+    <p style="font-size:.8rem;color:var(--muted);margin-bottom:1.25rem" id="access-for"></p>
+    <div id="access-list"></div>
+    <div class="error-msg" id="access-error"></div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal('access-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveAccess()">Save Access</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Deactivate Confirm Modal ── -->
+<div class="backdrop" id="deactivate-modal">
+  <div class="modal">
+    <h2>Deactivate User</h2>
+    <p style="font-size:.82rem;margin-bottom:1.25rem">
+      Deactivate <strong id="deactivate-name"></strong>? Their active sessions will be
+      ended and they won't be able to log in until reactivated.
+    </p>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal('deactivate-modal')">Cancel</button>
+      <button class="btn-danger" onclick="confirmDeactivate()">Deactivate</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let allUsers   = [];
+let allClients = [];
+let currentUser = null;  // logged-in admin
+let editingUserId = null;
+let targetUserId  = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async () => {
+  try {
+    const me = await fetch('/api/auth/me').then(r => { if (!r.ok) throw 0; return r.json(); });
+    document.getElementById('user-display').textContent = me.displayName || me.email;
+    if (me.role !== 'admin') { location = '/dashboard'; return; }
+    document.getElementById('menu-users-link').style.display = '';
+    currentUser = me;
+  } catch(_) { location = '/login'; return; }
+
+  await Promise.all([loadUsers(), loadClients()]);
+})();
+
+async function loadUsers() {
+  const res = await fetch('/api/admin/users');
+  const { users } = await res.json();
+  allUsers = users;
+  renderTable();
+}
+
+async function loadClients() {
+  const res = await fetch('/api/admin/clients');
+  const { clients } = await res.json();
+  allClients = clients;
+}
+
+// ── Table render ──────────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('user-tbody');
+  if (!allUsers.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);font-size:.82rem;padding:1.5rem .75rem">No users yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = allUsers.map(u => {
+    const isMe      = currentUser && u.email === currentUser.email;
+    const inactive  = !u.active;
+    const lastLogin = u.last_login ? new Date(u.last_login).toLocaleString() : 'Never';
+    return `
+      <tr class="${inactive ? 'inactive-row' : ''}">
+        <td>
+          <div class="user-name">${esc(u.display_name || u.email)}</div>
+          <div class="user-email">${esc(u.email)}</div>
+          ${inactive ? '<div style="font-size:.68rem;color:var(--red);margin-top:.2rem">Deactivated</div>' : ''}
+        </td>
+        <td><span class="role-badge role-${u.role}">${u.role}</span></td>
+        <td style="color:var(--muted);font-size:.78rem">${esc(lastLogin)}</td>
+        <td>
+          <div class="actions">
+            ${inactive ? `
+              <button class="btn-ghost" onclick="reactivateUser('${u.id}')">Reactivate</button>
+            ` : `
+              <button class="btn-ghost" onclick="openEditModal('${u.id}')">Edit</button>
+              <button class="btn-ghost" onclick="openAccessModal('${u.id}')">Clients</button>
+              <button class="btn-ghost" onclick="openPasswordModal('${u.id}')">Password</button>
+              ${!isMe ? `<button class="btn-danger" onclick="openDeactivateModal('${u.id}')">Remove</button>` : ''}
+            `}
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+// ── Add / Edit User ───────────────────────────────────────────────────────────
+function openAddModal() {
+  editingUserId = null;
+  document.getElementById('user-modal-title').textContent = 'Add User';
+  document.getElementById('um-save-btn').textContent = 'Add User';
+  document.getElementById('um-name').value     = '';
+  document.getElementById('um-email').value    = '';
+  document.getElementById('um-password').value = '';
+  document.getElementById('um-role').value     = 'tech';
+  document.getElementById('um-email').disabled = false;
+  document.getElementById('um-pw-field').style.display = '';
+  document.getElementById('um-error').textContent = '';
+  openModal('user-modal');
+  setTimeout(() => document.getElementById('um-name').focus(), 50);
+}
+
+function openEditModal(userId) {
+  const u = allUsers.find(x => x.id === userId);
+  if (!u) return;
+  editingUserId = userId;
+  document.getElementById('user-modal-title').textContent = 'Edit User';
+  document.getElementById('um-save-btn').textContent = 'Save Changes';
+  document.getElementById('um-name').value     = u.display_name || '';
+  document.getElementById('um-email').value    = u.email;
+  document.getElementById('um-role').value     = u.role;
+  document.getElementById('um-email').disabled = true;
+  document.getElementById('um-pw-field').style.display = 'none';
+  document.getElementById('um-error').textContent = '';
+  openModal('user-modal');
+  setTimeout(() => document.getElementById('um-name').focus(), 50);
+}
+
+async function saveUser() {
+  const name     = document.getElementById('um-name').value.trim();
+  const email    = document.getElementById('um-email').value.trim().toLowerCase();
+  const password = document.getElementById('um-password').value;
+  const role     = document.getElementById('um-role').value;
+  const errEl    = document.getElementById('um-error');
+  errEl.textContent = '';
+
+  if (!email) { errEl.textContent = 'Email is required.'; return; }
+
+  if (editingUserId) {
+    const res = await fetch(`/api/admin/users/${editingUserId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: name, role }),
+    });
+    if (!res.ok) { const d = await res.json(); errEl.textContent = d.detail || 'Error saving.'; return; }
+  } else {
+    if (!password) { errEl.textContent = 'Password is required.'; return; }
+    const res = await fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: name, email, password, role }),
+    });
+    if (!res.ok) { const d = await res.json(); errEl.textContent = d.detail || 'Error creating user.'; return; }
+  }
+
+  closeModal('user-modal');
+  await loadUsers();
+}
+
+// ── Password reset ────────────────────────────────────────────────────────────
+function openPasswordModal(userId) {
+  const u = allUsers.find(x => x.id === userId);
+  targetUserId = userId;
+  document.getElementById('pw-for').textContent = `For: ${u ? (u.display_name || u.email) : userId}`;
+  document.getElementById('pw-new').value     = '';
+  document.getElementById('pw-confirm').value = '';
+  document.getElementById('pw-error').textContent = '';
+  openModal('pw-modal');
+  setTimeout(() => document.getElementById('pw-new').focus(), 50);
+}
+
+async function savePassword() {
+  const pw  = document.getElementById('pw-new').value;
+  const pw2 = document.getElementById('pw-confirm').value;
+  const err = document.getElementById('pw-error');
+  err.textContent = '';
+  if (pw.length < 8) { err.textContent = 'Password must be at least 8 characters.'; return; }
+  if (pw !== pw2)    { err.textContent = 'Passwords do not match.'; return; }
+  const res = await fetch(`/api/admin/users/${targetUserId}/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pw }),
+  });
+  if (!res.ok) { const d = await res.json(); err.textContent = d.detail || 'Error.'; return; }
+  closeModal('pw-modal');
+}
+
+// ── Client access ─────────────────────────────────────────────────────────────
+async function openAccessModal(userId) {
+  const u = allUsers.find(x => x.id === userId);
+  targetUserId = userId;
+  document.getElementById('access-for').textContent = `User: ${u ? (u.display_name || u.email) : userId}`;
+  document.getElementById('access-error').textContent = '';
+  document.getElementById('access-list').innerHTML = '<p style="color:var(--muted);font-size:.82rem">Loading…</p>';
+  openModal('access-modal');
+
+  const res  = await fetch(`/api/admin/users/${userId}/access`);
+  const { access } = await res.json();
+  const accessMap = {};
+  access.forEach(a => { accessMap[a.client_id] = a.access_level; });
+
+  if (!allClients.length) {
+    document.getElementById('access-list').innerHTML =
+      '<p style="color:var(--muted);font-size:.82rem">No clients registered yet.</p>';
+    return;
+  }
+
+  document.getElementById('access-list').innerHTML = allClients.map(c => `
+    <div class="access-grid">
+      <div>
+        <div class="access-client-name">${esc(c.name)}</div>
+        <div class="access-client-domain">${esc(c.domain)}</div>
+      </div>
+      <select class="access-select" data-client-id="${esc(c.id)}">
+        <option value="none"     ${!accessMap[c.id]                        ? 'selected' : ''}>No access</option>
+        <option value="helpdesk" ${accessMap[c.id] === 'helpdesk'          ? 'selected' : ''}>Helpdesk</option>
+        <option value="admin"    ${accessMap[c.id] === 'admin'             ? 'selected' : ''}>Admin</option>
+      </select>
+    </div>
+    <hr class="access-divider">
+  `).join('');
+}
+
+async function saveAccess() {
+  const selects = document.querySelectorAll('#access-list .access-select');
+  const access  = [];
+  selects.forEach(sel => {
+    if (sel.value !== 'none') {
+      access.push({ client_id: sel.dataset.clientId, access_level: sel.value });
+    }
+  });
+  const err = document.getElementById('access-error');
+  err.textContent = '';
+  const res = await fetch(`/api/admin/users/${targetUserId}/access`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ access }),
+  });
+  if (!res.ok) { const d = await res.json(); err.textContent = d.detail || 'Error saving.'; return; }
+  closeModal('access-modal');
+}
+
+// ── Deactivate ────────────────────────────────────────────────────────────────
+function openDeactivateModal(userId) {
+  const u = allUsers.find(x => x.id === userId);
+  targetUserId = userId;
+  document.getElementById('deactivate-name').textContent = u ? (u.display_name || u.email) : userId;
+  openModal('deactivate-modal');
+}
+
+async function confirmDeactivate() {
+  const res = await fetch(`/api/admin/users/${targetUserId}`, { method: 'DELETE' });
+  if (res.ok) { closeModal('deactivate-modal'); await loadUsers(); }
+}
+
+async function reactivateUser(userId) {
+  const res = await fetch(`/api/admin/users/${userId}/reactivate`, { method: 'POST' });
+  if (res.ok) await loadUsers();
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+document.querySelectorAll('.backdrop').forEach(el => {
+  el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+});
+
+// ── User menu ──────────────────────────────────────────────────────────────────
+function toggleUserMenu(e) { e.stopPropagation(); document.getElementById('user-menu').classList.toggle('open'); }
+document.addEventListener('click', () => document.getElementById('user-menu').classList.remove('open'));
+
+function openChangePw() {
+  document.getElementById('user-menu').classList.remove('open');
+  ['cp-current','cp-new','cp-confirm'].forEach(id => document.getElementById(id).value='');
+  document.getElementById('cp-error').textContent = '';
+  document.getElementById('cp-modal').classList.add('open');
+  setTimeout(() => document.getElementById('cp-current').focus(), 50);
+}
+function closeChangePw() { document.getElementById('cp-modal').classList.remove('open'); }
+async function saveChangePw() {
+  const cur=document.getElementById('cp-current').value, pw=document.getElementById('cp-new').value, pw2=document.getElementById('cp-confirm').value;
+  const err=document.getElementById('cp-error'); err.textContent='';
+  if (!cur)          { err.textContent='Current password is required.'; return; }
+  if (pw.length < 8) { err.textContent='New password must be at least 8 characters.'; return; }
+  if (pw !== pw2)    { err.textContent='Passwords do not match.'; return; }
+  const res = await fetch('/api/auth/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:cur,new_password:pw})});
+  if (!res.ok) { const d=await res.json(); err.textContent=d.detail||'Error.'; return; }
+  closeChangePw();
+}
+</script>
+</body>
+</html>

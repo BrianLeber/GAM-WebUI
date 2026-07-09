@@ -1,0 +1,160 @@
+# GAM-WebUI Production Deployment
+#
+# Design decisions captured here:
+#
+# Single container model:
+#   One app container serves all clients. Client isolation is achieved through
+#   per-client GAMCONFIGDIR directories under /data/clients/, not separate
+#   containers. This keeps the operational model simple — one service to manage,
+#   one set of logs, one SQLite DB. We discussed per-client containers but
+#   decided the added complexity isn't worth it for this use case.
+#
+# GAM binary mount strategy:
+#   GAM is mounted read-only from the host. When GAM is updated on the host,
+#   all clients immediately get the new binary — no image rebuild needed.
+#   The binary stays on the host, not in the image, to keep image size down
+#   and to decouple GAM releases from app releases.
+#
+# Data directory layout:
+#   All mutable state lives under a single /data volume. This makes backups
+#   trivial (tar the volume) and makes it easy to migrate between hosts.
+#   The config.yaml lives in /data so it can be edited without rebuilding.
+#
+#   /data/
+#     config.yaml              ← copy from config.example.yaml and fill in
+#     db.sqlite                ← auto-created on first run (WAL mode)
+#     logs/
+#       commands.jsonl         ← per-client append-only audit log
+#       terminations/
+#         {client_id}/
+#           {ts}_{email}.json  ← full pre-termination snapshot
+#     clients/
+#       {client_id}/
+#         gam-config-admin/    ← full-scope GAM credentials (oauth2.txt, etc.)
+#         gam-config-helpdesk/ ← reduced-scope GAM credentials
+#
+# Credential bootstrapping:
+#   The gam-config-* directories are populated via the CLI onboarding flow
+#   (see docs/onboarding-new-client.md, to be written). You run `gam` in a
+#   temporary sandboxed directory, complete the OAuth dance, then move the
+#   resulting credential files into the appropriate client directory.
+#   The app never writes credentials — it only reads them.
+#
+# Networking:
+#   The app listens on 0.0.0.0:8000 inside the container. Reverse-proxy
+#   (nginx, Caddy, Cloudflare Tunnel, Tailscale funnel) sits in front and
+#   handles TLS. We do not terminate TLS in this container.
+#
+#   For LAN/Tailscale-only deployments, you can map port 8000 directly
+#   and skip the reverse proxy if you're OK with plain HTTP on a private network.
+#
+# Future: scheduled actions
+#   The scheduler runs inside the same process (asyncio background task).
+#   If we ever need to scale out to multiple workers, the scheduler must move
+#   to a dedicated worker — two uvicorn workers both running the scheduler
+#   would double-execute due actions. For now, single worker is fine.
+#
+# Usage:
+#   cp config.example.yaml data/config.yaml
+#   $EDITOR data/config.yaml          # fill in secret_key, auth config, etc.
+#   docker compose up -d
+#   docker compose logs -f
+
+version: "3.9"
+
+services:
+  app:
+    image: gam-webui:latest
+    # Build locally with: docker build -t gam-webui .
+    # Or pull from a private registry once CI/CD is in place.
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    restart: unless-stopped
+
+    ports:
+      - "0.0.0.0:8007:8000"
+
+    volumes:
+      # GAM binary — read-only so the container can never modify it.
+      # Change this path to wherever GAMADV-XTD3 is installed on your host.
+      - /path/to/gam7:/opt/gam7:ro
+
+      # All mutable state: config, SQLite, logs, per-client credentials.
+      # Bind-mount so the host ./data directory is used directly — easy to inspect
+      # and the config.yaml is picked up without copying into a named volume.
+      - ./data:/data
+
+      # Named volume alternative for production:
+      # - gam_data:/data
+
+      # Docker socket — allows the orchestrator to start/stop client containers.
+      # The socket is used read-write so we can run `docker` CLI commands.
+      # Restrict access by running the app as a non-root user with docker group membership.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    environment:
+      # Path to the main config file inside the container.
+      GAM_WEBUI_CONFIG: /data/config.yaml
+
+      # GAM binary path — must match the volume mount above.
+      GAM_PATH: /opt/gam7/gam
+
+      # Uvicorn worker count. Single worker is required while the scheduler
+      # runs in-process. If you move to a dedicated scheduler container,
+      # you can safely raise this.
+      UVICORN_WORKERS: "1"
+
+    # Health check: hit the login page (no auth required).
+    # Adjust the interval and retries to match your monitoring setup.
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/login')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Resource limits — tune to taste.
+    # GAM subprocesses can be RAM-hungry during large print operations.
+    # 512 MB is comfortable for a small MSP (< 20 clients, < 5K users each).
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+    # Log rotation — keeps disk usage bounded.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+# Named volume persists data across `docker compose down` + `up`.
+# To back up: docker run --rm -v gam_data:/data -v $(pwd):/backup \
+#               alpine tar czf /backup/gam-data-$(date +%F).tar.gz /data
+volumes:
+  gam_data:
+    driver: local
+
+# Optional: add a reverse proxy service here if you want a fully self-contained
+# deployment. Example (Caddy):
+#
+#   caddy:
+#     image: caddy:2-alpine
+#     restart: unless-stopped
+#     ports:
+#       - "80:80"
+#       - "443:443"
+#     volumes:
+#       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+#       - caddy_data:/data
+#       - caddy_config:/config
+#     depends_on:
+#       - app
+#
+# Caddyfile:
+#   gam.yourdomain.com {
+#     reverse_proxy app:8000
+#   }

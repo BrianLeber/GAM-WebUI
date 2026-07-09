@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GAM WebUI — Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --surf2:   #1c2333;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --blue:    #58a6ff;
+      --green:   #3fb950;
+      --red:     #f85149;
+      --yellow:  #d29922;
+    }
+    body { font-family: system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); min-height:100dvh; display:flex; flex-direction:column; }
+
+    header { padding:.65rem 1.25rem; border-bottom:1px solid var(--border); background:var(--surface); display:flex; align-items:center; gap:.75rem; }
+    .logo { font-size:.9rem; font-weight:700; color:var(--blue); letter-spacing:.08em; text-decoration:none; }
+    .header-spacer { flex:1; }
+
+    /* ─── User menu ─── */
+    .user-menu { position:relative; }
+    .user-btn { display:flex; align-items:center; gap:.35rem; background:transparent; border:1px solid var(--border); border-radius:6px; color:var(--muted); font-size:.72rem; padding:.3rem .65rem; cursor:pointer; white-space:nowrap; max-width:200px; }
+    .user-btn:hover { color:var(--text); border-color:var(--text); }
+    .user-btn-name { overflow:hidden; text-overflow:ellipsis; }
+    .user-dropdown { display:none; position:absolute; right:0; top:calc(100% + 4px); background:var(--surface); border:1px solid var(--border); border-radius:8px; min-width:180px; z-index:200; padding:.35rem 0; box-shadow:0 8px 24px rgba(0,0,0,.5); }
+    .user-menu.open .user-dropdown { display:block; }
+    .dd-item { display:block; width:100%; text-align:left; padding:.45rem .85rem; font-size:.78rem; color:var(--text); background:transparent; border:none; cursor:pointer; text-decoration:none; }
+    .dd-item:hover { background:var(--surf2); }
+    .dd-divider { border:none; border-top:1px solid var(--border); margin:.3rem 0; }
+    .dd-danger { color:var(--red) !important; }
+
+    /* ─── Change-password modal ─── */
+    .cp-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:300; align-items:center; justify-content:center; }
+    .cp-backdrop.open { display:flex; }
+    .cp-modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1.5rem; width:100%; max-width:380px; }
+    .cp-modal h2 { font-size:.95rem; font-weight:600; margin-bottom:1.25rem; }
+    .cp-field { margin-bottom:.9rem; }
+    .cp-field label { display:block; font-size:.75rem; color:var(--muted); margin-bottom:.3rem; }
+    .cp-field input { width:100%; padding:.42rem .6rem; background:var(--surf2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:.82rem; outline:none; }
+    .cp-field input:focus { border-color:var(--blue); }
+    .cp-error { font-size:.75rem; color:var(--red); min-height:1rem; margin:.5rem 0; }
+    .cp-footer { display:flex; justify-content:flex-end; gap:.6rem; margin-top:1rem; }
+    .btn-ghost { padding:.3rem .65rem; border:1px solid var(--border); border-radius:6px; background:transparent; color:var(--muted); font-size:.72rem; cursor:pointer; }
+    .btn-ghost:hover { color:var(--text); border-color:var(--text); }
+    .btn-primary { padding:.3rem .75rem; background:var(--blue); color:#0d1117; border:none; border-radius:6px; font-size:.72rem; font-weight:600; cursor:pointer; }
+    .btn-primary:hover { opacity:.85; }
+
+    main { flex:1; padding:2rem 1.25rem; max-width:900px; margin:0 auto; width:100%; }
+    h1 { font-size:1rem; font-weight:600; margin-bottom:.25rem; }
+    .subtitle { font-size:.78rem; color:var(--muted); margin-bottom:1.5rem; }
+
+    .client-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:.85rem; }
+    .client-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:1.1rem; cursor:pointer; text-decoration:none; color:inherit; display:flex; flex-direction:column; gap:.4rem; transition:border-color .15s,background .15s; }
+    .client-card:hover { border-color:var(--blue); background:var(--surf2); }
+    .client-card-top { display:flex; justify-content:space-between; align-items:flex-start; }
+    .client-name { font-weight:600; font-size:.9rem; }
+    .client-domain { font-size:.72rem; color:var(--muted); margin-top:.15rem; }
+    .client-card-bottom { display:flex; justify-content:space-between; align-items:center; margin-top:.5rem; }
+    .client-level { font-size:.62rem; font-weight:600; padding:.1rem .4rem; border-radius:99px; }
+    .level-admin    { background:#0d2040; color:var(--blue); }
+    .level-helpdesk { background:#21262d; color:var(--muted); }
+    .container-status { display:flex; align-items:center; gap:.35rem; font-size:.65rem; color:var(--muted); }
+    .status-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+    .dot-running  { background:var(--green); box-shadow:0 0 5px var(--green); }
+    .dot-stopped  { background:var(--muted); }
+    .dot-starting { background:var(--yellow); animation:blink 1s infinite; }
+    .dot-error    { background:var(--red); }
+    @keyframes blink { 0%,100%{opacity:1}50%{opacity:.25} }
+    .empty { text-align:center; padding:3rem; color:var(--muted); font-size:.85rem; }
+    .session-note { font-size:.68rem; color:var(--muted); text-align:center; padding:1rem 0 0; }
+  </style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/dashboard">GAM WEBUI</a>
+  <div class="header-spacer"></div>
+  <div class="user-menu" id="user-menu">
+    <button class="user-btn" onclick="toggleUserMenu(event)">
+      <span class="user-btn-name" id="user-display">…</span>
+      <span style="font-size:.6rem;opacity:.7">▾</span>
+    </button>
+    <div class="user-dropdown">
+      <button class="dd-item" onclick="openChangePw()">Change Password</button>
+      <a class="dd-item" href="/users" id="menu-users-link" style="display:none">User Management</a>
+      <div class="dd-divider"></div>
+      <form action="/logout" method="POST" style="margin:0">
+        <button class="dd-item dd-danger" type="submit">Sign Out</button>
+      </form>
+    </div>
+  </div>
+</header>
+
+<!-- Change Password modal -->
+<div class="cp-backdrop" id="cp-modal" onclick="if(event.target===this)closeChangePw()">
+  <div class="cp-modal">
+    <h2>Change Password</h2>
+    <div class="cp-field"><label>Current Password</label><input id="cp-current" type="password" autocomplete="current-password" /></div>
+    <div class="cp-field"><label>New Password</label><input id="cp-new" type="password" autocomplete="new-password" /></div>
+    <div class="cp-field"><label>Confirm New Password</label><input id="cp-confirm" type="password" autocomplete="new-password" /></div>
+    <div class="cp-error" id="cp-error"></div>
+    <div class="cp-footer">
+      <button class="btn-ghost" onclick="closeChangePw()">Cancel</button>
+      <button class="btn-primary" onclick="saveChangePw()">Update Password</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <h1>Select a Client</h1>
+  <p class="subtitle">Client context expires after 30 minutes of inactivity.</p>
+  <div class="client-grid" id="client-grid"><div class="empty">Loading clients…</div></div>
+  <p class="session-note">Session expires 12 hours after login.</p>
+</main>
+
+<script>
+(async () => {
+  try {
+    const me = await fetch('/api/auth/me').then(r => { if (!r.ok) throw 0; return r.json(); });
+    document.getElementById('user-display').textContent = me.displayName || me.email;
+    if (me.role === 'admin') document.getElementById('menu-users-link').style.display = '';
+  } catch(_) { location = '/login'; return; }
+
+  try {
+    const { clients = [] } = await fetch('/api/dashboard/clients').then(r => r.json());
+    const grid = document.getElementById('client-grid');
+    if (!clients.length) {
+      grid.innerHTML = '<div class="empty">No clients assigned to your account.<br>Contact your administrator.</div>';
+      return;
+    }
+    grid.innerHTML = clients.map(c => {
+      const st  = c.container_status || 'stopped';
+      const lbl = st==='running'?'Running':st==='starting'?'Starting…':st==='error'?'Error':'Stopped';
+      return `<a class="client-card" href="/client/${encodeURIComponent(c.id)}"
+           data-client-id="${esc(c.id)}" data-status="${esc(st)}"
+           onclick="handleCardClick(event,this)">
+          <div class="client-card-top">
+            <div class="client-name">${esc(c.name)}</div>
+            <div class="container-status">
+              <span class="status-dot dot-${esc(st)}" id="dot-${esc(c.id)}"></span>
+              <span id="status-lbl-${esc(c.id)}">${lbl}</span>
+            </div>
+          </div>
+          <div class="client-domain">${esc(c.domain)}</div>
+          <div class="client-card-bottom">
+            <span class="client-level level-${esc(c.access_level)}">${esc(c.access_level)}</span>
+          </div>
+        </a>`;
+    }).join('');
+  } catch(_) {
+    document.getElementById('client-grid').innerHTML = '<div class="empty">Failed to load clients. Please refresh.</div>';
+  }
+})();
+
+function handleCardClick(e, card) {
+  if (card.dataset.status === 'running') return;
+  e.preventDefault();
+  startAndNavigate(card.dataset.clientId, card);
+}
+async function startAndNavigate(clientId, card) {
+  setCardStatus(clientId, 'starting', 'Starting…');
+  card.style.pointerEvents = 'none';
+  try {
+    await fetch(`/api/client/${encodeURIComponent(clientId)}/container/start`, { method:'POST' });
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 600));
+      const { status } = await fetch(`/api/client/${encodeURIComponent(clientId)}/container/status`).then(r => r.json());
+      if (status === 'running') { location = `/client/${encodeURIComponent(clientId)}`; return; }
+      if (status === 'error') break;
+    }
+  } catch(_) {}
+  setCardStatus(clientId, 'error', 'Error');
+  card.style.pointerEvents = '';
+}
+function setCardStatus(id, st, lbl) {
+  const dot = document.getElementById(`dot-${id}`);
+  const el  = document.getElementById(`status-lbl-${id}`);
+  if (dot) dot.className = `status-dot dot-${st}`;
+  if (el)  el.textContent = lbl;
+}
+
+// ── User menu ──
+function toggleUserMenu(e) { e.stopPropagation(); document.getElementById('user-menu').classList.toggle('open'); }
+document.addEventListener('click', () => document.getElementById('user-menu').classList.remove('open'));
+
+function openChangePw() {
+  document.getElementById('user-menu').classList.remove('open');
+  ['cp-current','cp-new','cp-confirm'].forEach(id => document.getElementById(id).value='');
+  document.getElementById('cp-error').textContent = '';
+  document.getElementById('cp-modal').classList.add('open');
+  setTimeout(() => document.getElementById('cp-current').focus(), 50);
+}
+function closeChangePw() { document.getElementById('cp-modal').classList.remove('open'); }
+async function saveChangePw() {
+  const cur=document.getElementById('cp-current').value, pw=document.getElementById('cp-new').value, pw2=document.getElementById('cp-confirm').value;
+  const err=document.getElementById('cp-error'); err.textContent='';
+  if (!cur)          { err.textContent='Current password is required.'; return; }
+  if (pw.length < 8) { err.textContent='New password must be at least 8 characters.'; return; }
+  if (pw !== pw2)    { err.textContent='Passwords do not match.'; return; }
+  const res = await fetch('/api/auth/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:cur,new_password:pw})});
+  if (!res.ok) { const d=await res.json(); err.textContent=d.detail||'Error.'; return; }
+  closeChangePw();
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+</body>
+</html>

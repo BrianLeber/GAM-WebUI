@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GAM WebUI — Login</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --blue:    #58a6ff;
+      --red:     #f85149;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 380px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .logo {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--blue);
+      letter-spacing: 0.1em;
+      text-align: center;
+    }
+    .subtitle {
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.5;
+    }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    input[type="email"],
+    input[type="password"] {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: var(--blue); }
+    .btn {
+      width: 100%;
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      background: var(--blue);
+      color: #0d1117;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #error-msg {
+      background: #2d1010;
+      border: 1px solid var(--red);
+      border-radius: 6px;
+      padding: 0.6rem 0.8rem;
+      font-size: 0.8rem;
+      color: var(--red);
+      display: none;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">GAM WEBUI</div>
+  <p class="subtitle">Google Workspace Administration<br>for Managed Service Providers</p>
+
+  <div id="error-msg"></div>
+
+  <div>
+    <label for="email">Email</label>
+    <input type="email" id="email" autocomplete="username" placeholder="you@example.com" />
+  </div>
+  <div>
+    <label for="password">Password</label>
+    <input type="password" id="password" autocomplete="current-password" placeholder="••••••••" />
+  </div>
+  <button class="btn" id="btn-login" onclick="login()">Sign in</button>
+</div>
+
+<script>
+  // Pre-fill error from query param (e.g. redirected with ?error=session_expired)
+  const params = new URLSearchParams(location.search);
+  const qErr   = params.get("error");
+  if (qErr) {
+    const msgs = {
+      session_expired: "Your session has expired. Please sign in again.",
+      oauth_failed:    "Authentication failed. Please try again.",
+    };
+    showError(msgs[qErr] || `Error: ${qErr}`);
+  }
+
+  document.getElementById("password").addEventListener("keydown", e => {
+    if (e.key === "Enter") login();
+  });
+
+  async function login() {
+    const email    = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+    const btn      = document.getElementById("btn-login");
+
+    if (!email || !password) { showError("Email and password are required."); return; }
+
+    btn.disabled = true;
+    btn.textContent = "Signing in…";
+    clearError();
+
+    try {
+      const r = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await r.json();
+      if (r.ok) {
+        location.href = data.redirect || "/dashboard";
+      } else {
+        showError(data.detail || "Invalid email or password.");
+      }
+    } catch {
+      showError("Network error. Please try again.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Sign in";
+    }
+  }
+
+  function showError(msg) {
+    const el = document.getElementById("error-msg");
+    el.textContent = msg;
+    el.style.display = "block";
+  }
+  function clearError() {
+    document.getElementById("error-msg").style.display = "none";
+  }
+</script>
+</body>
+</html>

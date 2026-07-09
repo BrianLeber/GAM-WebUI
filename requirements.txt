@@ -1,0 +1,29 @@
+# Web framework
+fastapi==0.135.3
+uvicorn==0.44.0
+python-multipart==0.0.20     # form data (login callbacks)
+
+# Config
+pyyaml==6.0.2
+
+# Docker SDK — talks to /var/run/docker.sock directly, no CLI binary needed
+docker==7.1.0
+
+# Auth
+# bcrypt for local username/password hashing
+# msal/google-auth kept for future SSO (not active yet)
+# itsdangerous signs session cookies so we don't need a separate JWT library
+bcrypt==4.3.0
+msal==1.31.0
+google-auth==2.49.2
+google-api-python-client==2.194.0
+itsdangerous==2.2.0
+httpx==0.28.1                # async HTTP for OAuth token exchange
+
+# Data / scheduling
+# Using stdlib sqlite3 + asyncio.to_thread (no ORM — schema is simple enough)
+# aiosqlite kept as an option if we hit contention on the scheduler
+aiosqlite==0.20.0
+
+# Utilities
+pydantic==2.13.0

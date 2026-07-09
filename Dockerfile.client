@@ -1,0 +1,31 @@
+# GAM Client Container
+#
+# One of these runs per active Google Workspace client.
+# The orchestrator (gam-webui app) starts and stops these via docker exec.
+#
+# What lives inside:
+#   /opt/gam7/          — GAM binary, mounted read-only from the host
+#   /data/clients/{id}/ — GAM credential directories, mounted read-only from
+#                         the shared data volume
+#
+# The container stays alive with `sleep infinity`; GAM commands are injected
+# via `docker exec -e GAMCONFIGDIR=<path> <container> /opt/gam7/gam <args>`.
+#
+# Build:
+#   docker build -f Dockerfile.client -t gam-client .
+#
+# The orchestrator starts instances with:
+#   docker run -d --rm --name gam-client-{id} \
+#     -v gam_data:/data:ro \
+#     -v /host/bin/gam7:/opt/gam7:ro \
+#     gam-client:latest
+
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# GAM and credentials are mounted at runtime — nothing credential-related in the image.
+# The container's only job is to stay alive for docker exec.
+CMD ["sleep", "infinity"]

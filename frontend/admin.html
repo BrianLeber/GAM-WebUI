@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<!-- Admin UI — adapted from gam-lc prototype.
+     Key differences from prototype:
+       - All API paths prefixed with /api/client/{clientId}/
+       - clientId and techEmail populated from page load / session
+       - Header shows client name + back-to-dashboard link
+       - Log entries include tech email (set server-side, displayed here)
+       - OU defaults driven by client config (fetched from API)
+       - Terminal pane: grayed out, wired up in v0.4
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GAM WebUI</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --surf2:   #1c2333;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --blue:    #58a6ff;
+      --green:   #3fb950;
+      --red:     #f85149;
+      --yellow:  #d29922;
+      --purple:  #a371f7;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ─── Header ─── */
+    header {
+      padding: 0.55rem 1rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
+      background: var(--surface);
+    }
+    .logo {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--blue);
+      letter-spacing: 0.08em;
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+
+    /* ─── User menu dropdown ─── */
+    .user-menu { position: relative; }
+    .user-btn {
+      display: flex; align-items: center; gap: 0.35rem;
+      background: transparent; border: 1px solid var(--border); border-radius: 6px;
+      color: var(--muted); font-size: 0.72rem; padding: 0.3rem 0.65rem; cursor: pointer;
+      white-space: nowrap; max-width: 160px;
+    }
+    .user-btn:hover { color: var(--text); border-color: var(--text); }
+    .user-btn-name { overflow: hidden; text-overflow: ellipsis; }
+    .user-dropdown {
+      display: none; position: absolute; right: 0; top: calc(100% + 4px);
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      min-width: 180px; z-index: 200; padding: 0.35rem 0;
+      box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    }
+    .user-menu.open .user-dropdown { display: block; }
+    .dd-item {
+      display: block; width: 100%; text-align: left;
+      padding: 0.45rem 0.85rem; font-size: 0.78rem; color: var(--text);
+      background: transparent; border: none; cursor: pointer; text-decoration: none;
+    }
+    .dd-item:hover { background: var(--surf2); }
+    .dd-divider { border: none; border-top: 1px solid var(--border); margin: 0.3rem 0; }
+    .dd-danger { color: var(--red) !important; }
+
+    /* ─── Change-password backdrop (reuses .modal) ─── */
+    .cp-backdrop {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.65); z-index: 300;
+      align-items: center; justify-content: center;
+    }
+    .cp-backdrop.open { display: flex; }
+    .cp-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; width: 100%; max-width: 380px; }
+    .cp-modal h2 { font-size: .95rem; font-weight: 600; margin-bottom: 1.25rem; }
+    .cp-field { margin-bottom: .9rem; }
+    .cp-field label { display: block; font-size: .75rem; color: var(--muted); margin-bottom: .3rem; }
+    .cp-field input { width: 100%; padding: .42rem .6rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: .82rem; outline: none; }
+    .cp-field input:focus { border-color: var(--blue); }
+    .cp-error { font-size: .75rem; color: var(--red); min-height: 1rem; margin: .5rem 0; }
+    .cp-footer { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1rem; }
+    .client-switcher-wrap {
+      display: flex; align-items: center; gap: 0.5rem;
+      border-left: 1px solid var(--border); padding-left: 0.75rem;
+    }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    }
+    .dot-running  { background: var(--green); box-shadow: 0 0 5px var(--green); }
+    .dot-stopped  { background: var(--muted); }
+    .dot-starting { background: var(--yellow); animation: blink 1s infinite; }
+    .dot-error    { background: var(--red); }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+    #client-switcher {
+      background: transparent; border: none; color: var(--text);
+      font-size: 0.78rem; font-weight: 500; cursor: pointer; outline: none;
+      padding: 0; max-width: 180px;
+    }
+    #client-switcher option { background: var(--surface); color: var(--text); }
+
+    #cache-status { font-size: 0.68rem; color: var(--muted); }
+    #cache-status.ready { color: var(--green); }
+    .header-spacer { flex: 1; }
+
+    /* Terminal icon — grayed, v0.4 */
+    .btn-terminal {
+      font-size: 0.8rem;
+      padding: 0.3rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--border);
+      cursor: not-allowed;
+      title: "CLI — coming in v0.4";
+    }
+    .btn-ghost {
+      font-size: 0.72rem;
+      padding: 0.3rem 0.65rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .btn-ghost:hover { color: var(--text); border-color: var(--text); }
+
+    /* ─── Layout ─── */
+    .layout {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+    }
+    .col {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 0.85rem;
+      gap: 0.85rem;
+    }
+    .col-header {
+      font-size: 0.62rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    @media (min-width: 960px) {
+      .layout { flex-direction: row; }
+      .col { border-right: 1px solid var(--border); }
+      .col:last-child { border-right: none; }
+      .col-status  { width: 310px; flex-shrink: 0; }
+      .col-actions { width: 360px; flex-shrink: 0; }
+      .col-logs    { flex: 1; }
+      .btn-logs-mobile { display: none !important; }
+    }
+    @media (max-width: 959px) {
+      .col-logs { display: none; }
+      body { overflow-y: auto; }
+      .layout { overflow: visible; height: auto; }
+    }
+
+    /* ─── Sections & Fields ─── */
+    .section { display: flex; flex-direction: column; gap: 0.5rem; }
+    .section-title {
+      font-size: 0.62rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .field { display: flex; flex-direction: column; gap: 0.2rem; position: relative; }
+    .field label { font-size: 0.7rem; color: var(--muted); }
+    .field input, .field select, .field textarea {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text);
+      padding: 0.42rem 0.65rem; font-size: 0.82rem; width: 100%;
+      outline: none; transition: border-color 0.15s;
+    }
+    .field textarea { resize: vertical; min-height: 4rem; font-family: inherit; line-height: 1.4; }
+    .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--blue); }
+    input[type="date"] { color-scheme: dark; }
+    .field input.valid   { border-color: var(--green); }
+    .field input.invalid { border-color: var(--red); }
+
+    /* ─── Autocomplete dropdown ─── */
+    .ac-dropdown {
+      position: fixed; background: #1c2b3a;
+      border: 1px solid var(--blue); border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 9999;
+      max-height: 220px; overflow-y: auto; display: none;
+    }
+    .ac-item {
+      padding: 0.4rem 0.75rem; font-size: 0.8rem; color: var(--text);
+      cursor: pointer; border-bottom: 1px solid #213040;
+    }
+    .ac-item:last-child { border-bottom: none; }
+    .ac-item:hover, .ac-item.active { background: #1f3a5f; }
+    .ac-item mark { background: none; color: var(--blue); font-weight: 600; }
+
+    /* ─── Buttons ─── */
+    .btn-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    button {
+      padding: 0.38rem 0.8rem; border: none; border-radius: 6px;
+      font-size: 0.78rem; font-weight: 500; cursor: pointer;
+      transition: filter 0.15s; white-space: nowrap;
+    }
+    button:hover:not(:disabled) { filter: brightness(1.18); }
+    button:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn-blue   { background: #1f6feb; color: #fff; }
+    .btn-green  { background: #238636; color: #fff; }
+    .btn-red    { background: #b91c1c; color: #fff; }
+    .btn-yellow { background: #9e6a03; color: #fff; }
+
+    /* ─── Status card ─── */
+    .status-card {
+      background: var(--surf2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.7rem; font-size: 0.78rem; display: none;
+    }
+    .status-card.visible { display: block; }
+    .sc-name { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.4rem; }
+    .sc-row {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      padding: 0.22rem 0; border-bottom: 1px solid #21262d; gap: 0.5rem;
+    }
+    .sc-row:last-of-type { border-bottom: none; }
+    .sc-key { color: var(--muted); flex-shrink: 0; font-size: 0.72rem; padding-top: 0.1rem; }
+    .sc-val { text-align: right; word-break: break-all; }
+    .badge {
+      display: inline-block; font-size: 0.62rem; font-weight: 600;
+      padding: 0.1rem 0.4rem; border-radius: 99px; margin: 0.05rem;
+    }
+    .b-red    { background: #3d1515; color: var(--red); }
+    .b-green  { background: #0d2a16; color: var(--green); }
+    .b-blue   { background: #0d2040; color: var(--blue); }
+    .b-muted  { background: #21262d; color: var(--muted); }
+    .b-yellow { background: #2e1f03; color: var(--yellow); }
+    .sc-actions { display: flex; gap: 0.4rem; margin-top: 0.6rem; flex-wrap: wrap; }
+
+    /* ─── Misc ─── */
+    .note { font-size: 0.68rem; color: var(--muted); line-height: 1.4; }
+    .same-warn { font-size: 0.7rem; color: var(--red); display: none; }
+    .divider { border: none; border-top: 1px solid var(--border); }
+
+    /* ─── Log entries ─── */
+    .log-entries { display: flex; flex-direction: column; gap: 0.4rem; }
+    .log-entry {
+      border-left: 3px solid var(--border); background: var(--surface);
+      border-radius: 0 6px 6px 0; padding: 0.55rem 0.7rem;
+      font-size: 0.76rem; line-height: 1.5; transition: opacity 0.3s;
+    }
+    .log-entry.le-success { border-left-color: var(--green); }
+    .log-entry.le-fail    { border-left-color: var(--red); }
+    .log-entry.le-skip    { border-left-color: var(--yellow); }
+    .log-entry.le-current { background: var(--surf2); }
+    .log-entry.le-1   { opacity: 0.68; }
+    .log-entry.le-2   { opacity: 0.48; }
+    .log-entry.le-3   { opacity: 0.34; }
+    .log-entry.le-old { opacity: 0.2; }
+    .le-top    { display: flex; justify-content: space-between; gap: 0.5rem; }
+    .le-action { font-weight: 600; }
+    .le-ts     { color: var(--muted); font-size: 0.68rem; flex-shrink: 0; }
+    .le-meta   { font-size: 0.7rem; color: var(--muted); margin-top: 0.05rem; }
+    .le-user   { color: var(--blue); }
+    .le-target { color: var(--purple); }
+    .le-tech   { color: var(--muted); font-style: italic; }
+    .le-result { font-size: 0.7rem; margin-top: 0.12rem; }
+    .le-success .le-result { color: var(--green); }
+    .le-fail    .le-result { color: var(--red); }
+    .le-skip    .le-result { color: var(--yellow); }
+    .le-out {
+      margin-top: 0.2rem; font-family: monospace; font-size: 0.68rem;
+      color: var(--muted); white-space: pre-wrap; word-break: break-all;
+      max-height: 80px; overflow-y: auto;
+    }
+
+    /* ─── Terminate modal ─── */
+    .modal-backdrop {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.75); z-index: 800;
+      align-items: center; justify-content: center; padding: 1rem;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--surface); border: 1px solid var(--red);
+      border-radius: 10px; width: 100%; max-width: 480px;
+      max-height: 90dvh; overflow-y: auto;
+      box-shadow: 0 0 40px rgba(248,81,73,0.2);
+    }
+    .modal-header {
+      background: #2d1010; border-bottom: 1px solid var(--red);
+      padding: 0.85rem 1rem; border-radius: 10px 10px 0 0;
+    }
+    .modal-header h2 { font-size: 0.9rem; font-weight: 700; color: var(--red); }
+    .modal-header p  { font-size: 0.72rem; color: #e57373; margin-top: 0.2rem; }
+    .modal-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.85rem; }
+    .modal-target {
+      background: var(--surf2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.82rem;
+    }
+    .modal-target .mt-name  { font-weight: 600; }
+    .modal-target .mt-email { color: var(--blue); font-size: 0.75rem; }
+    .modal-footer {
+      display: flex; gap: 0.5rem; justify-content: flex-end;
+      padding: 0.85rem 1rem; border-top: 1px solid var(--border);
+    }
+    .modal-check-row {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; cursor: pointer;
+    }
+    .modal-check-row input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--blue); }
+    .modal-sub { display: none; margin-top: 0.4rem; }
+    .modal-sub.visible { display: block; }
+
+    /* ─── Mobile log modal ─── */
+    .log-modal {
+      display: none; position: fixed; inset: 0;
+      background: var(--bg); z-index: 500; flex-direction: column;
+    }
+    .log-modal.open { display: flex; }
+    .log-modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+      background: var(--surface); font-size: 0.85rem; font-weight: 600; flex-shrink: 0;
+    }
+    .log-modal-body {
+      flex: 1; overflow-y: auto; padding: 0.85rem;
+      display: flex; flex-direction: column; gap: 0.4rem;
+    }
+    @media (min-width: 960px) {
+      .btn-logs-mobile, .log-modal { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="/dashboard">GAM WEBUI</a>
+  <div class="client-switcher-wrap">
+    <span class="status-dot dot-stopped" id="container-dot" title="Container status"></span>
+    <select id="client-switcher" onchange="switchClient(this.value)" title="Switch client">
+      <option value="">Loading…</option>
+    </select>
+  </div>
+  <span id="cache-status">Loading…</span>
+  <div class="header-spacer"></div>
+  <button class="btn-terminal" disabled title="Integrated CLI — coming in v0.4">&gt;_</button>
+  <button class="btn-ghost btn-logs-mobile" onclick="toggleLogModal()">Logs</button>
+  <a href="/dashboard" class="btn-ghost">← Client List</a>
+  <div class="user-menu" id="user-menu">
+    <button class="user-btn" onclick="toggleUserMenu(event)">
+      <span class="user-btn-name" id="user-display">…</span>
+      <span style="font-size:.6rem;opacity:.7">▾</span>
+    </button>
+    <div class="user-dropdown">
+      <button class="dd-item" onclick="openChangePw()">Change Password</button>
+      <a class="dd-item" href="/users" id="menu-users-link" style="display:none">User Management</a>
+      <div class="dd-divider"></div>
+      <form action="/logout" method="POST" style="margin:0">
+        <button class="dd-item dd-danger" type="submit">Sign Out</button>
+      </form>
+    </div>
+  </div>
+</header>
+
+<!-- Change Password modal -->
+<div class="cp-backdrop" id="cp-modal" onclick="if(event.target===this)closeChangePw()">
+  <div class="cp-modal">
+    <h2>Change Password</h2>
+    <div class="cp-field"><label>Current Password</label><input id="cp-current" type="password" autocomplete="current-password" /></div>
+    <div class="cp-field"><label>New Password</label><input id="cp-new" type="password" autocomplete="new-password" /></div>
+    <div class="cp-field"><label>Confirm New Password</label><input id="cp-confirm" type="password" autocomplete="new-password" /></div>
+    <div class="cp-error" id="cp-error"></div>
+    <div class="cp-footer">
+      <button class="btn-ghost" onclick="closeChangePw()">Cancel</button>
+      <button class="btn-blue" onclick="saveChangePw()">Update Password</button>
+    </div>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- ══ COL 1: User Status ══ -->
+  <div class="col col-status">
+    <div class="col-header">User Status</div>
+    <div class="section">
+      <div class="field">
+        <label>Email</label>
+        <input id="lookup-email" type="text" placeholder="user@domain.com"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <div class="btn-row">
+        <button class="btn-blue" onclick="lookupUser()">Look Up</button>
+      </div>
+    </div>
+    <div class="status-card" id="status-card">
+      <div class="sc-name" id="sc-name"></div>
+      <div class="sc-row"><span class="sc-key">Email</span>     <span class="sc-val" id="sc-email"></span></div>
+      <div class="sc-row"><span class="sc-key">OU</span>        <span class="sc-val" id="sc-ou"></span></div>
+      <div class="sc-row"><span class="sc-key">Status</span>    <span class="sc-val" id="sc-status"></span></div>
+      <div class="sc-row"><span class="sc-key">2-Step</span>    <span class="sc-val" id="sc-2sv"></span></div>
+      <div class="sc-row"><span class="sc-key">Last Login</span><span class="sc-val" id="sc-login"></span></div>
+      <div class="sc-row"><span class="sc-key">Forward</span>   <span class="sc-val" id="sc-fwd"></span></div>
+      <div class="sc-row"><span class="sc-key">Delegates</span> <span class="sc-val" id="sc-delegates"></span></div>
+      <div class="sc-row"><span class="sc-key">Vacation</span>  <span class="sc-val" id="sc-vacation"></span></div>
+      <div class="sc-actions">
+        <button class="btn-red"   id="btn-suspend"   onclick="quickSuspend()"   style="display:none">Suspend</button>
+        <button class="btn-green" id="btn-unsuspend" onclick="quickUnsuspend()" style="display:none">Unsuspend</button>
+        <button class="btn-ghost" onclick="lookupUser()">↺ Refresh</button>
+        <button class="btn-red"   id="btn-terminate" onclick="openTerminateModal()" style="display:none">Terminate…</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ COL 2: Quick Actions ══ -->
+  <div class="col col-actions">
+    <div class="col-header">Quick Actions</div>
+
+    <div class="section">
+      <div class="section-title">Forward / Delegate</div>
+      <div class="field">
+        <label>Subject (mailbox owner)</label>
+        <input id="fd-subject" type="text" placeholder="owner@domain.com"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label>Target</label>
+        <input id="fd-target" type="text" placeholder="target@domain.com"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <div class="same-warn" id="fd-warn">Subject and target cannot be the same address.</div>
+      <div class="btn-row">
+        <button class="btn-green"  id="btn-fwd-on"  onclick="fwdAction('add')">Enable Forwarding</button>
+        <button class="btn-red"    id="btn-fwd-off" onclick="fwdAction('remove')">Disable Forwarding</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn-blue"   id="btn-del-add" onclick="delAction('add')">Add Delegate</button>
+        <button class="btn-yellow" id="btn-del-rm"  onclick="delAction('remove')">Remove Delegate</button>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="section">
+      <div class="section-title">Vacation / OOO Reply</div>
+      <div class="field">
+        <label>Mailbox</label>
+        <input id="vac-user" type="text" placeholder="user@domain.com"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label>Subject</label>
+        <input id="vac-subject" type="text" placeholder="Out of Office" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label>Message</label>
+        <textarea id="vac-message" rows="3"
+                  placeholder="I'm out of the office and will return soon."
+                  autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+      </div>
+      <div class="field">
+        <label>End Date <span style="color:var(--muted);font-weight:400">(blank = indefinite)</span></label>
+        <input id="vac-enddate" type="date" />
+      </div>
+      <div class="btn-row">
+        <button class="btn-blue"   onclick="vacAction('set')">Enable OOO Reply</button>
+        <button class="btn-yellow" onclick="vacAction('clear')">Disable OOO Reply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ COL 3: Logs (desktop) ══ -->
+  <div class="col col-logs">
+    <div class="col-header">Command Log</div>
+    <div class="log-entries" id="log-entries-desktop">
+      <div style="color:var(--muted);font-size:0.78rem">No commands yet.</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Terminate modal -->
+<div class="modal-backdrop" id="terminate-backdrop" onclick="closeTerminateOnBackdrop(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>WARNING: Irreversible Actions</h2>
+      <p>This will lock the account with an unknown random password, remove all recovery methods, and move the user to a new OU. Mail flow is preserved. This cannot be automatically undone.</p>
+    </div>
+    <div class="modal-body">
+      <div class="modal-target">
+        <div class="mt-name" id="tm-name"></div>
+        <div class="mt-email" id="tm-email"></div>
+      </div>
+      <div class="field">
+        <label>Type the full email address to confirm</label>
+        <input id="tm-confirm" type="text" placeholder="must match exactly"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label>Move to OU <span style="color:var(--red)">*</span></label>
+        <select id="tm-ou" onchange="checkTerminateReady()"
+                style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:0.42rem 0.65rem;font-size:0.82rem;width:100%;outline:none">
+          <option value="">— select OU —</option>
+        </select>
+      </div>
+      <label class="modal-check-row">
+        <input type="checkbox" id="tm-fwd-check" onchange="toggleModalSub('tm-fwd-check','tm-fwd-sub')" />
+        Forward email to another account
+      </label>
+      <div class="modal-sub" id="tm-fwd-sub">
+        <div class="field">
+          <input id="tm-fwd-target" type="text" placeholder="forward-to@domain.com"
+                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+        </div>
+      </div>
+      <label class="modal-check-row">
+        <input type="checkbox" id="tm-del-check" onchange="toggleModalSub('tm-del-check','tm-del-sub')" />
+        Delegate access to another account
+      </label>
+      <div class="modal-sub" id="tm-del-sub">
+        <div class="field">
+          <input id="tm-del-target" type="text" placeholder="delegate-to@domain.com"
+                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeTerminateModal()">Cancel</button>
+      <button class="btn-red" id="tm-confirm-btn" onclick="runTerminate()" disabled>Confirm Termination</button>
+    </div>
+  </div>
+</div>
+
+<!-- Mobile log modal -->
+<div class="log-modal" id="log-modal">
+  <div class="log-modal-header">
+    Command Log
+    <button class="btn-ghost" onclick="toggleLogModal()">✕ Close</button>
+  </div>
+  <div class="log-modal-body">
+    <div class="log-entries" id="log-entries-mobile">
+      <div style="color:var(--muted);font-size:0.78rem">No commands yet.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══ State ═══
+// clientId is extracted from the URL path: /client/{clientId}
+const clientId = location.pathname.split('/').filter(Boolean)[1] || '';
+const API      = `/api/client/${clientId}`;
+
+let userList = [];
+let ouList   = [];
+let logEntries = [];
+let currentLookupUser = null;
+let currentLookupInfo = null;
+
+// ═══ Init ═══
+(async () => {
+  if (!clientId) { location = '/dashboard'; return; }
+
+  try {
+    const me = await fetch('/api/auth/me').then(r => { if (!r.ok) throw new Error(); return r.json(); });
+    document.getElementById('user-display').textContent = me.displayName || me.email;
+    if (me.role === 'admin') document.getElementById('menu-users-link').style.display = '';
+  }
+  catch(e) { location = '/login'; return; }
+
+  initAutocomplete('lookup-email',  { onSelect: lookupUser });
+  initAutocomplete('fd-subject',    { onChange: checkSameAddress });
+  initAutocomplete('fd-target',     { onChange: checkSameAddress });
+  initAutocomplete('tm-confirm',    { onChange: checkTerminateReady });
+  initAutocomplete('tm-fwd-target', {});
+  initAutocomplete('tm-del-target', {});
+  initAutocomplete('vac-user',      {});
+
+  document.getElementById('lookup-email')
+    .addEventListener('keydown', e => { if (e.key === 'Enter') lookupUser(); });
+
+  await Promise.all([loadClientSwitcher(), loadUsers(), loadOUs(), loadLogs()]);
+  setInterval(loadLogs, 5000);
+  setInterval(refreshContainerDot, 15000);
+})();
+
+// ═══ Client switcher ═══
+async function loadClientSwitcher() {
+  try {
+    const { clients } = await fetch('/api/dashboard/clients').then(r => r.json());
+    const sel = document.getElementById('client-switcher');
+    sel.innerHTML = clients.map(c =>
+      `<option value="${esc(c.id)}"${c.id === clientId ? ' selected' : ''}>${esc(c.name)}</option>`
+    ).join('');
+    const current = clients.find(c => c.id === clientId);
+    if (current) setContainerDot(current.container_status || 'stopped');
+  } catch(_) {}
+}
+
+async function refreshContainerDot() {
+  try {
+    const { status } = await fetch(`${API}/container/status`).then(r => r.json());
+    setContainerDot(status);
+  } catch(_) {}
+}
+
+function setContainerDot(status) {
+  const dot = document.getElementById('container-dot');
+  dot.className = `status-dot dot-${status}`;
+  dot.title = `Container: ${status}`;
+}
+
+function switchClient(newId) {
+  if (newId && newId !== clientId) {
+    window.location = `/client/${encodeURIComponent(newId)}`;
+  }
+}
+
+// ═══ User menu ═══
+function toggleUserMenu(e) { e.stopPropagation(); document.getElementById('user-menu').classList.toggle('open'); }
+document.addEventListener('click', () => document.getElementById('user-menu').classList.remove('open'));
+
+function openChangePw() {
+  document.getElementById('user-menu').classList.remove('open');
+  ['cp-current','cp-new','cp-confirm'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('cp-error').textContent = '';
+  document.getElementById('cp-modal').classList.add('open');
+  setTimeout(() => document.getElementById('cp-current').focus(), 50);
+}
+function closeChangePw() { document.getElementById('cp-modal').classList.remove('open'); }
+async function saveChangePw() {
+  const cur = document.getElementById('cp-current').value;
+  const pw  = document.getElementById('cp-new').value;
+  const pw2 = document.getElementById('cp-confirm').value;
+  const err = document.getElementById('cp-error');
+  err.textContent = '';
+  if (!cur)          { err.textContent = 'Current password is required.'; return; }
+  if (pw.length < 8) { err.textContent = 'New password must be at least 8 characters.'; return; }
+  if (pw !== pw2)    { err.textContent = 'Passwords do not match.'; return; }
+  const res = await fetch('/api/auth/change-password', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ current_password: cur, new_password: pw }),
+  });
+  if (!res.ok) { const d = await res.json(); err.textContent = d.detail || 'Error.'; return; }
+  closeChangePw();
+}
+
+// ═══ Caches ═══
+async function loadUsers() {
+  try {
+    const data = await fetch(`${API}/users`).then(r => r.json());
+    userList = data.users || [];
+    const el = document.getElementById('cache-status');
+    if (data.ready) {
+      el.textContent = `${userList.length.toLocaleString()} users`;
+      el.classList.add('ready');
+    } else {
+      el.textContent = 'Building cache…';
+      setTimeout(loadUsers, 5000);
+    }
+  } catch(e) { setTimeout(loadUsers, 8000); }
+}
+
+async function loadOUs() {
+  try {
+    const data = await fetch(`${API}/ous`).then(r => r.json());
+    ouList = data.ous || [];
+    if (!data.ready) setTimeout(loadOUs, 5000);
+  } catch(e) { setTimeout(loadOUs, 8000); }
+}
+
+function populateOUSelect(id) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = '<option value="">— select OU —</option>' +
+    ouList.map(ou => {
+      const depth  = (ou.match(/\//g)||[]).length - 1;
+      const indent = '\u00a0\u00a0\u00a0\u00a0'.repeat(depth);
+      const label  = indent + ou.split('/').pop();
+      const sel    = ou.toLowerCase().includes('suspend') ? ' selected' : '';
+      return `<option value="${esc(ou)}"${sel}>${label}</option>`;
+    }).join('');
+}
+
+// ═══ Autocomplete ═══
+function initAutocomplete(inputId, { onSelect, onChange } = {}) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const drop = document.createElement('div');
+  drop.className = 'ac-dropdown';
+  document.body.appendChild(drop);
+  let items = [], activeIdx = -1;
+
+  function open(matches, query) {
+    items = matches; activeIdx = -1;
+    const r = input.getBoundingClientRect();
+    Object.assign(drop.style, {
+      display: 'block',
+      top:   (r.bottom + window.scrollY + 2) + 'px',
+      left:  (r.left   + window.scrollX)     + 'px',
+      width: r.width + 'px',
+    });
+    const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'ig');
+    drop.innerHTML = matches.map((m, i) =>
+      `<div class="ac-item" data-i="${i}">${m.replace(re, q => `<mark>${q}</mark>`)}</div>`
+    ).join('');
+    drop.querySelectorAll('.ac-item').forEach(el =>
+      el.addEventListener('mousedown', e => { e.preventDefault(); pick(+el.dataset.i); })
+    );
+  }
+  function close() { drop.style.display='none'; items=[]; activeIdx=-1; }
+  function pick(i) {
+    input.value = items[i]; validate(input); close();
+    if (onSelect) onSelect(items[i]);
+    if (onChange) onChange();
+  }
+  function highlight() {
+    drop.querySelectorAll('.ac-item').forEach((el,i) => el.classList.toggle('active', i===activeIdx));
+  }
+  input.addEventListener('input', () => {
+    validate(input);
+    if (onChange) onChange();
+    const q = input.value.trim().toLowerCase();
+    if (!q || q.length < 2) { close(); return; }
+    const hits = userList.filter(u => u.includes(q)).slice(0,12);
+    hits.length ? open(hits,q) : close();
+  });
+  input.addEventListener('keydown', e => {
+    if (drop.style.display !== 'block') return;
+    if (e.key==='ArrowDown') { e.preventDefault(); activeIdx=Math.min(activeIdx+1,items.length-1); highlight(); }
+    else if (e.key==='ArrowUp') { e.preventDefault(); activeIdx=Math.max(activeIdx-1,-1); highlight(); }
+    else if (e.key==='Enter' && activeIdx>=0) { e.preventDefault(); pick(activeIdx); }
+    else if (e.key==='Escape') close();
+  });
+  input.addEventListener('blur', () => setTimeout(close, 150));
+  window.addEventListener('scroll', close, {passive:true});
+  window.addEventListener('resize', close, {passive:true});
+}
+
+function validate(input) {
+  const v = input.value.trim().toLowerCase();
+  if (!v) { input.className=''; return; }
+  if (!userList.length) return;
+  input.className = userList.includes(v) ? 'valid' : (v.includes('@') ? 'invalid' : '');
+}
+
+function checkSameAddress() {
+  const s = norm(document.getElementById('fd-subject').value);
+  const t = norm(document.getElementById('fd-target').value);
+  const same = s && t && s === t;
+  document.getElementById('fd-warn').style.display = same ? 'block' : 'none';
+  ['btn-fwd-on','btn-fwd-off','btn-del-add','btn-del-rm'].forEach(id => {
+    document.getElementById(id).disabled = same;
+  });
+}
+
+// ═══ User lookup ═══
+async function lookupUser(emailOverride) {
+  const email = emailOverride || norm(document.getElementById('lookup-email').value);
+  if (!email) return;
+  currentLookupUser = email;
+
+  const card = document.getElementById('status-card');
+  card.classList.add('visible');
+  document.getElementById('sc-name').textContent = '⏳ Loading…';
+  ['sc-email','sc-ou','sc-status','sc-2sv','sc-login','sc-fwd','sc-delegates','sc-vacation'].forEach(id => {
+    document.getElementById(id).innerHTML = '';
+  });
+  ['btn-suspend','btn-unsuspend','btn-terminate'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+
+  try {
+    const res = await fetch(`${API}/user/status?target_user=${encodeURIComponent(email)}`);
+    if (!res.ok) { document.getElementById('sc-name').textContent = '✗ User not found'; return; }
+    const { info, forwarding: fwd, delegates, vacation: vac } = await res.json();
+
+    currentLookupInfo = info;
+    document.getElementById('sc-name').textContent = info.fullName || email;
+    document.getElementById('sc-email').textContent = email;
+    document.getElementById('sc-ou').textContent    = info.orgUnit || '—';
+    document.getElementById('sc-status').innerHTML  = info.suspended ? badge('Suspended','b-red') : badge('Active','b-green');
+    document.getElementById('sc-2sv').innerHTML =
+      badge(info.twosvEnrolled ? 'Enrolled' : 'Not enrolled', info.twosvEnrolled ? 'b-blue' : 'b-muted') +
+      (info.twosvEnforced ? ' ' + badge('Enforced','b-yellow') : '');
+    document.getElementById('sc-login').textContent = info.lastLogin ? new Date(info.lastLogin).toLocaleString() : '—';
+    document.getElementById('sc-fwd').innerHTML = fwd.enabled ? badge('→ '+fwd.address,'b-blue') : badge('Off','b-muted');
+    document.getElementById('sc-delegates').innerHTML = delegates.length
+      ? delegates.map(d => badge(d,'b-blue')).join(' ') : badge('None','b-muted');
+    if (vac?.enabled) {
+      const label = vac.subject ? `OOO: ${vac.subject}` : 'On';
+      const until = vac.endDate ? ` until ${vac.endDate}` : '';
+      document.getElementById('sc-vacation').innerHTML = badge(label + until, 'b-yellow');
+    } else {
+      document.getElementById('sc-vacation').innerHTML = badge('Off', 'b-muted');
+    }
+
+    document.getElementById('vac-user').value = email;
+    validate(document.getElementById('vac-user'));
+
+    document.getElementById('btn-suspend').style.display   = info.suspended ? 'none' : '';
+    document.getElementById('btn-unsuspend').style.display = info.suspended ? '' : 'none';
+    document.getElementById('btn-terminate').style.display = '';
+
+    document.getElementById('fd-subject').value = email;
+    validate(document.getElementById('fd-subject'));
+  } catch(e) {
+    document.getElementById('sc-name').textContent = '✗ Error loading user';
+  }
+}
+
+async function quickSuspend()   { if (currentLookupUser) await runAction(`${API}/user/suspend`,   { user: currentLookupUser }); }
+async function quickUnsuspend() { if (currentLookupUser) await runAction(`${API}/user/unsuspend`, { user: currentLookupUser }); }
+
+// ═══ Forward / Delegate ═══
+async function fwdAction(mode) {
+  const subject = norm(document.getElementById('fd-subject').value);
+  const target  = norm(document.getElementById('fd-target').value);
+  if (!subject || !target) return;
+  const url = mode === 'add' ? `${API}/forwarding/add` : `${API}/forwarding/remove`;
+  await runAction(url, { user: subject, forward_to: target });
+}
+async function delAction(mode) {
+  const subject = norm(document.getElementById('fd-subject').value);
+  const target  = norm(document.getElementById('fd-target').value);
+  if (!subject || !target) return;
+  const url = mode === 'add' ? `${API}/delegate/add` : `${API}/delegate/remove`;
+  await runAction(url, { user: subject, delegate: target });
+}
+
+// ═══ Vacation / OOO ═══
+async function vacAction(mode) {
+  const user = norm(document.getElementById('vac-user').value);
+  if (!user) return;
+  if (mode === 'set') {
+    const subject = document.getElementById('vac-subject').value.trim();
+    const message = document.getElementById('vac-message').value.trim();
+    const endDate = document.getElementById('vac-enddate').value || null;
+    if (!subject || !message) return;
+    await runAction(`${API}/vacation/set`, { user, subject, message, end_date: endDate });
+  } else {
+    await runAction(`${API}/vacation/clear`, { user });
+  }
+}
+
+// ═══ Terminate modal ═══
+function openTerminateModal() {
+  if (!currentLookupUser) return;
+  document.getElementById('tm-name').textContent  = currentLookupInfo?.fullName || currentLookupUser;
+  document.getElementById('tm-email').textContent = currentLookupUser;
+  document.getElementById('tm-confirm').value     = '';
+  document.getElementById('tm-fwd-check').checked = false;
+  document.getElementById('tm-del-check').checked = false;
+  document.getElementById('tm-fwd-sub').classList.remove('visible');
+  document.getElementById('tm-del-sub').classList.remove('visible');
+  document.getElementById('tm-fwd-target').value  = '';
+  document.getElementById('tm-del-target').value  = '';
+  document.getElementById('tm-confirm-btn').disabled = true;
+  document.getElementById('tm-confirm-btn').textContent = 'Confirm Termination';
+  populateOUSelect('tm-ou');
+  document.getElementById('terminate-backdrop').classList.add('open');
+  setTimeout(() => document.getElementById('tm-confirm').focus(), 50);
+}
+function closeTerminateModal() { document.getElementById('terminate-backdrop').classList.remove('open'); }
+function closeTerminateOnBackdrop(e) { if (e.target === document.getElementById('terminate-backdrop')) closeTerminateModal(); }
+function toggleModalSub(checkId, subId) {
+  document.getElementById(subId).classList.toggle('visible', document.getElementById(checkId).checked);
+}
+function checkTerminateReady() {
+  const ok = norm(document.getElementById('tm-confirm').value) === currentLookupUser
+          && document.getElementById('tm-ou').value !== '';
+  document.getElementById('tm-confirm-btn').disabled = !ok;
+}
+async function runTerminate() {
+  const ou        = document.getElementById('tm-ou').value;
+  const fwdTarget = document.getElementById('tm-fwd-check').checked ? norm(document.getElementById('tm-fwd-target').value) : null;
+  const delTarget = document.getElementById('tm-del-check').checked ? norm(document.getElementById('tm-del-target').value) : null;
+  document.getElementById('tm-confirm-btn').disabled = true;
+  document.getElementById('tm-confirm-btn').textContent = 'Working…';
+  await runAction(`${API}/user/terminate`, {
+    user: currentLookupUser, confirm_user: currentLookupUser,
+    target_ou: ou, forward_to: fwdTarget || null, delegate_to: delTarget || null,
+  });
+  closeTerminateModal();
+  document.getElementById('tm-confirm-btn').textContent = 'Confirm Termination';
+}
+
+// ═══ Action runner ═══
+async function runAction(url, body) {
+  const res   = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const entry = await res.json();
+  prependLog(entry);
+  if (currentLookupUser && body.user === currentLookupUser) await lookupUser();
+  return entry;
+}
+
+// ═══ Logs ═══
+async function loadLogs() {
+  try {
+    const data = await fetch(`${API}/logs?limit=50`).then(r => r.json());
+    logEntries = data.entries || [];
+    renderLogs();
+  } catch(e) {}
+}
+function prependLog(entry) {
+  if (!logEntries.find(e => e.id === entry.id)) logEntries.unshift(entry);
+  renderLogs();
+}
+function renderLogs() {
+  const html = logEntries.length
+    ? logEntries.map(entryHtml).join('')
+    : '<div style="color:var(--muted);font-size:0.78rem">No commands yet.</div>';
+  document.getElementById('log-entries-desktop').innerHTML = html;
+  document.getElementById('log-entries-mobile').innerHTML  = html;
+}
+function entryHtml(e, i) {
+  const cls    = e.skipped ? 'le-skip' : e.success ? 'le-success' : 'le-fail';
+  const ageCls = i===0 ? 'le-current' : i===1 ? 'le-1' : i===2 ? 'le-2' : i===3 ? 'le-3' : 'le-old';
+  const result = e.skipped ? `⊘ ${e.skip_reason}` : e.success ? '✓ Success' : '✗ Failed';
+  const ts     = new Date(e.ts).toLocaleTimeString();
+  const target = e.target ? ` → <span class="le-target">${esc(e.target)}</span>` : '';
+  const tech   = e.tech_email ? ` <span class="le-tech">by ${esc(e.tech_email)}</span>` : '';
+  const out    = e.output ? `<div class="le-out">${esc(e.output)}</div>` : '';
+  return `<div class="log-entry ${cls} ${ageCls}">
+    <div class="le-top"><span class="le-action">${esc(e.action)}</span><span class="le-ts">${ts}</span></div>
+    <div class="le-meta"><span class="le-user">${esc(e.user)}</span>${target}${tech}</div>
+    <div class="le-result">${result}</div>${out}
+  </div>`;
+}
+
+// ═══ Mobile log modal ═══
+function toggleLogModal() { document.getElementById('log-modal').classList.toggle('open'); }
+
+// ═══ Helpers ═══
+function norm(s)  { return (s||'').trim().toLowerCase(); }
+function esc(s)   { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function badge(t, cls) { return `<span class="badge ${cls}">${esc(t)}</span>`; }
+</script>
+</body>
+</html>
