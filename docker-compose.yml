@@ -78,7 +78,7 @@ services:
 
     volumes:
       # GAM binary — read-only so the container can never modify it.
-      # Change this path to wherever GAMADV-XTD3 is installed on your host.
+      # Change this path to wherever GAM7 is installed on your host.
       - /path/to/gam7:/opt/gam7:ro
 
       # All mutable state: config, SQLite, logs, per-client credentials.

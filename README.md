@@ -1,7 +1,8 @@
 # GAM WebUI
 
 A multi-tenant web console for managing Google Workspace domains via
-[GAMADV-XTD3](https://github.com/taers232c/GAMADV-XTD3) (GAM 7). Built for MSPs:
+[GAM7](https://github.com/GAM-team/GAM) (the merged successor to GAMADV-XTD3
+and standard GAM). Built for MSPs:
 one deployment, many client domains, with per-technician access control and a
 full audit trail — so day-to-day Workspace tasks don't require handing every
 tech raw GAM on a shell.
@@ -62,7 +63,8 @@ tech raw GAM on a shell.
 
 ## Quick start
 
-Requirements: Docker with compose, a GAM 7 / GAMADV-XTD3 install on the host,
+Requirements: Docker with compose, a [GAM7](https://github.com/GAM-team/GAM)
+install on the host,
 and per-client GAM credentials (see [Onboarding a client](#onboarding-a-client)).
 
 ```bash
